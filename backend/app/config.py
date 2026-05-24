@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://rag_user:rag_password@localhost:5432/rag_chatbot"
     openai_api_key: str = Field(default="", repr=False)
     openai_embedding_model: str = "text-embedding-3-small"
+    openai_chat_model: str = "gpt-4o-mini"
     embedding_dimensions: int = 1536
     upload_dir: Path = Path("uploads")
     max_pdf_pages: int = 300

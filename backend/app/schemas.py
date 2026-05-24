@@ -36,3 +36,20 @@ class SearchResult(BaseModel):
     page_number: int
     excerpt: str
     similarity_score: float
+
+
+class ChatRequest(BaseModel):
+    question: str = Field(..., min_length=1, description="Question text to answer")
+    limit: int = Field(default=5, ge=1, le=10, description="Maximum number of source pages to use")
+
+
+class ReferencePage(BaseModel):
+    pdf_name: str
+    page_number: int
+    excerpt: str
+    similarity_score: float
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    references: list[ReferencePage]

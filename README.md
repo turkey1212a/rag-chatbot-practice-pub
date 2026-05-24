@@ -1,17 +1,14 @@
-# RAG PDF Ingestion MVP
+# RAG PDF Chatbot Practice
 
-PDFをページ単位で取り込み、OpenAI Embeddingsでベクトル化してPostgreSQL + pgvectorに保存するMVPです。
-
-現時点の実装範囲は、最初のゴールである「PDFをページ単位で取り込み、embedding付きでDBへ保存し、取り込み結果を確認する」までです。チャット回答生成とUIは次フェーズです。
+PDFをページ単位で取り込み、OpenAI Embeddingsでベクトル化してPostgreSQL + pgvectorに保存し、類似ページ検索と資料ベースのチャット回答を行うMVPです。
 
 ## 構成
 
-- `docker-compose.yml`: PostgreSQL + pgvector と FastAPI backend を起動
-- `backend/app`: FastAPI、DB初期化、PDF取り込み処理
+- `docker-compose.yml`: PostgreSQL + pgvector、FastAPI backend、Angular frontend を起動
+- `backend/app`: FastAPI、DB初期化、PDF取り込み、検索、チャット回答生成
+- `frontend/src/app`: PDFアップロードと質問回答の簡易UI
 - `backend/scripts/ingest_pdf.py`: 取り込み確認用CLI
 - `.env.example`: ローカル環境変数のサンプル
-
-既存のAngular/NestJS雛形ファイルは残っていますが、このMVPでは使用しません。
 
 ## セットアップ
 
@@ -29,8 +26,10 @@ POSTGRES_USER=rag_user
 POSTGRES_PASSWORD=rag_password
 POSTGRES_PORT=5432
 BACKEND_PORT=8000
+FRONTEND_PORT=8080
 OPENAI_API_KEY=your_openai_api_key_here
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_CHAT_MODEL=gpt-4o-mini
 EMBEDDING_DIMENSIONS=1536
 UPLOAD_DIR=uploads
 MAX_PDF_PAGES=300
@@ -40,10 +39,16 @@ MAX_PDF_PAGES=300
 
 ## 起動
 
-PostgreSQL + pgvector と backend を起動します。
+PostgreSQL + pgvector、backend、frontend を起動します。
 
 ```bash
 docker compose up --build
+```
+
+簡易UIは以下で開きます。
+
+```text
+http://localhost:8080
 ```
 
 起動後、ヘルスチェックを確認します。
@@ -127,6 +132,16 @@ curl -X POST http://localhost:8000/search \
 
 検索結果にはPDF名、ページ番号、本文抜粋、類似度スコアを含めます。
 
+## チャット回答
+
+検索結果をコンテキストとしてLLMに渡し、回答と参照元ページを返します。プロンプトでは、資料コンテキストにない内容を推測しないように指示しています。
+
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"question":"この資料で説明されている評価方法は？","limit":5}'
+```
+
 ## API仕様
 
 ### `GET /health`
@@ -178,6 +193,32 @@ Response:
 ]
 ```
 
+### `POST /chat`
+
+質問文で類似ページを検索し、そのページ本文だけをコンテキストとしてLLMに渡して回答を生成します。
+
+Request:
+
+```json
+{"question":"この資料で説明されている評価方法は？","limit":5}
+```
+
+Response:
+
+```json
+{
+  "answer": "資料に基づく回答...",
+  "references": [
+    {
+      "pdf_name": "sample.pdf",
+      "page_number": 3,
+      "excerpt": "本文抜粋...",
+      "similarity_score": 0.8123
+    }
+  ]
+}
+```
+
 ## DBスキーマ概要
 
 `documents`
@@ -202,11 +243,11 @@ PDFは必ず1ページ1チャンクで保存します。ページ内の追加分
 
 ## 既知の制約
 
-- チャット回答生成、簡易UIは未実装です。
 - テキスト抽出できないページは`skipped_pages`として記録し、embedding保存をスキップします。
 - `MAX_PDF_PAGES`を超えるPDFは取り込みを拒否します。
 - embedding次元数を変える場合は、既存DBボリュームを作り直すか、テーブル再作成が必要です。
-- ログにPDF本文やAPIキーを出さない方針のため、確認APIも本文を返しません。
+- 回答生成は検索で取得したページ本文だけをコンテキストにしますが、最終判断はLLMの出力に依存します。
+- ログにPDF本文やAPIキーを出さない方針のため、確認APIは本文を返しません。
 
 ## DBを初期化し直す
 
