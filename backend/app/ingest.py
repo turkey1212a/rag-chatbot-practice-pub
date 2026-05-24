@@ -5,7 +5,7 @@ from pypdf import PdfReader
 
 from app.config import get_settings
 from app.db import db_cursor, init_db
-from app.embeddings import create_embedding
+from app.embeddings import create_embedding, vector_literal
 
 
 @dataclass(frozen=True)
@@ -15,10 +15,6 @@ class IngestResult:
     page_count: int
     stored_pages: int
     skipped_pages: list[int]
-
-
-def _vector_literal(values: list[float]) -> str:
-    return "[" + ",".join(str(value) for value in values) + "]"
 
 
 def _extract_pages(pdf_path: Path) -> tuple[int, list[tuple[int, str]], list[int]]:
@@ -92,7 +88,7 @@ def ingest_pdf(pdf_path: str | Path, display_name: str | None = None) -> IngestR
                     file_name,
                     page_number,
                     chunk_text,
-                    _vector_literal(embedding),
+                    vector_literal(embedding),
                 ),
             )
 

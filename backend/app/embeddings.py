@@ -18,3 +18,7 @@ def create_embedding(text: str) -> list[float]:
 
     response = client.embeddings.create(**request)
     return response.data[0].embedding
+
+
+def vector_literal(values: list[float]) -> str:
+    return "[" + ",".join(str(value) for value in values) + "]"

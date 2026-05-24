@@ -4,10 +4,25 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 
 from app.config import get_settings
 from app.db import db_cursor, init_db
+from app.embeddings import create_embedding, vector_literal
 from app.ingest import ingest_pdf
-from app.schemas import DocumentSummary, HealthResponse, IngestPathRequest, IngestResponse
+from app.schemas import (
+    DocumentSummary,
+    HealthResponse,
+    IngestPathRequest,
+    IngestResponse,
+    SearchRequest,
+    SearchResult,
+)
 
 app = FastAPI(title="RAG PDF Ingestion API", version="0.1.0")
+
+
+def _excerpt(text: str, max_length: int = 280) -> str:
+    normalized = " ".join(text.split())
+    if len(normalized) <= max_length:
+        return normalized
+    return normalized[: max_length - 3].rstrip() + "..."
 
 
 @app.on_event("startup")
@@ -90,3 +105,40 @@ def list_document_chunks(document_id: str) -> list[dict]:
             (document_id,),
         )
         return cur.fetchall()
+
+
+@app.post("/search", response_model=list[SearchResult])
+def search_similar_pages(request: SearchRequest) -> list[SearchResult]:
+    question = request.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Question must not be empty")
+
+    try:
+        query_embedding = vector_literal(create_embedding(question))
+        with db_cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    file_name AS pdf_name,
+                    page_number,
+                    chunk_text,
+                    1 - (embedding <=> %s::vector) AS similarity_score
+                FROM page_chunks
+                ORDER BY embedding <=> %s::vector
+                LIMIT %s
+                """,
+                (query_embedding, query_embedding, request.limit),
+            )
+            rows = cur.fetchall()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return [
+        SearchResult(
+            pdf_name=row["pdf_name"],
+            page_number=row["page_number"],
+            excerpt=_excerpt(row["chunk_text"]),
+            similarity_score=float(row["similarity_score"]),
+        )
+        for row in rows
+    ]

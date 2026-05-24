@@ -115,6 +115,18 @@ curl http://localhost:8000/documents
 curl http://localhost:8000/documents/{document_id}/chunks
 ```
 
+## 類似ページ検索
+
+質問文をembedding化し、pgvectorのcosine距離で類似ページを検索します。
+
+```bash
+curl -X POST http://localhost:8000/search \
+  -H "Content-Type: application/json" \
+  -d '{"question":"この資料で説明されている評価方法は？","limit":5}'
+```
+
+検索結果にはPDF名、ページ番号、本文抜粋、類似度スコアを含めます。
+
 ## API仕様
 
 ### `GET /health`
@@ -143,6 +155,29 @@ Request:
 
 指定PDFの保存済みページチャンクを確認します。PDF本文はレスポンスに含めません。
 
+### `POST /search`
+
+質問文をembedding化して、保存済みページから類似ページを検索します。
+
+Request:
+
+```json
+{"question":"この資料で説明されている評価方法は？","limit":5}
+```
+
+Response:
+
+```json
+[
+  {
+    "pdf_name": "sample.pdf",
+    "page_number": 3,
+    "excerpt": "本文抜粋...",
+    "similarity_score": 0.8123
+  }
+]
+```
+
 ## DBスキーマ概要
 
 `documents`
@@ -167,7 +202,7 @@ PDFは必ず1ページ1チャンクで保存します。ページ内の追加分
 
 ## 既知の制約
 
-- チャット回答生成、類似検索API、簡易UIは未実装です。
+- チャット回答生成、簡易UIは未実装です。
 - テキスト抽出できないページは`skipped_pages`として記録し、embedding保存をスキップします。
 - `MAX_PDF_PAGES`を超えるPDFは取り込みを拒否します。
 - embedding次元数を変える場合は、既存DBボリュームを作り直すか、テーブル再作成が必要です。

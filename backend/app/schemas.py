@@ -24,3 +24,15 @@ class DocumentSummary(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
+
+
+class SearchRequest(BaseModel):
+    question: str = Field(..., min_length=1, description="Question text to search with")
+    limit: int = Field(default=5, ge=1, le=20, description="Maximum number of pages to return")
+
+
+class SearchResult(BaseModel):
+    pdf_name: str
+    page_number: int
+    excerpt: str
+    similarity_score: float
