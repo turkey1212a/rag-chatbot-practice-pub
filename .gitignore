@@ -1,7 +1,18 @@
 node_modules/
 dist/
 .angular/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
 .env
 .DS_Store
 npm-debug.log*
 
+backend/uploads/
+backend/data/
+*.pdf
+
+pgvector_data/

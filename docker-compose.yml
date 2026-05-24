@@ -1,17 +1,37 @@
 services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: rag_pgvector
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-rag_chatbot}
+      POSTGRES_USER: ${POSTGRES_USER:-rag_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rag_password}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rag_user} -d ${POSTGRES_DB:-rag_chatbot}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   backend:
     build:
       context: ./backend
-    ports:
-      - "3000:3000"
+    env_file:
+      - path: .env
+        required: false
     environment:
-      NODE_ENV: production
-
-  frontend:
-    build:
-      context: ./frontend
+      DATABASE_URL: postgresql://${POSTGRES_USER:-rag_user}:${POSTGRES_PASSWORD:-rag_password}@db:5432/${POSTGRES_DB:-rag_chatbot}
     ports:
-      - "8080:80"
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./backend/data:/app/data
     depends_on:
-      - backend
+      db:
+        condition: service_healthy
 
+volumes:
+  pgvector_data:
