@@ -108,8 +108,9 @@ export class AppComponent implements OnInit {
       return;
     }
 
+    const nextMessages: ChatMessage[] = [...this.messages(), { role: 'user', content: question }];
     this.asking.set(true);
-    this.messages.update((messages) => [...messages, { role: 'user', content: question }]);
+    this.messages.set(nextMessages);
     this.question = '';
     this.status.set('回答を生成しています...');
     this.error.set('');
@@ -118,6 +119,10 @@ export class AppComponent implements OnInit {
       .post<ChatResponse>(`${this.apiBase}/chat`, {
         question,
         limit: 5,
+        history: nextMessages.map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
       })
       .subscribe({
         next: (response) => {

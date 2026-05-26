@@ -9,6 +9,7 @@ from app.db import db_cursor, init_db
 from app.embeddings import create_embedding, vector_literal
 from app.ingest import ingest_pdf
 from app.schemas import (
+    ChatHistoryMessage,
     ChatRequest,
     ChatResponse,
     DocumentSummary,
@@ -86,6 +87,25 @@ def _build_context(rows: list[dict]) -> str:
     return "\n\n---\n\n".join(parts)
 
 
+def _build_clarification_context(rows: list[dict], max_rows: int = 3) -> str:
+    if not rows:
+        return "No potentially relevant passages were found."
+    parts = []
+    for index, row in enumerate(rows[:max_rows], start=1):
+        excerpt = _excerpt(row["chunk_text"], max_length=700)
+        parts.append(
+            "\n".join(
+                [
+                    f"[{index}] PDF: {row['pdf_name']}",
+                    f"Page: {row['page_number']}",
+                    f"Similarity: {float(row['similarity_score']):.4f}",
+                    f"Excerpt: {excerpt}",
+                ]
+            )
+        )
+    return "\n\n---\n\n".join(parts)
+
+
 def _answer_language(question: str) -> str:
     japanese_chars = sum(
         1 for char in question if "\u3040" <= char <= "\u30ff" or "\u4e00" <= char <= "\u9fff"
@@ -96,13 +116,90 @@ def _answer_language(question: str) -> str:
     return "Japanese"
 
 
-def _generate_answer(question: str, context: str) -> str:
+def _build_conversation_history(history: list[ChatHistoryMessage], max_messages: int = 8) -> str:
+    if not history:
+        return "No prior conversation."
+    recent_messages = history[-max_messages:]
+    return "\n".join(f"{message.role}: {message.content}" for message in recent_messages)
+
+
+def _search_query(question: str, history: list[ChatHistoryMessage]) -> str:
+    recent_user_messages = [
+        message.content for message in history[-6:] if message.role == "user" and message.content != question
+    ]
+    if not recent_user_messages:
+        return question
+    return "\n".join([*recent_user_messages, question])
+
+
+def _high_confidence_rows(rows: list[dict]) -> list[dict]:
+    min_score = get_settings().min_chat_similarity_score
+    return [row for row in rows if float(row["similarity_score"]) >= min_score]
+
+
+def _clarification_request(question: str, reason: str) -> str:
+    if _answer_language(question) == "English":
+        if reason == "low_similarity":
+            return (
+                "I could not find a sufficiently relevant passage in the uploaded PDFs. "
+                "Could you clarify which document, topic, term, or page range you want me to focus on?"
+            )
+        return "Could you clarify what you want to know in a little more detail?"
+    if reason == "low_similarity":
+        return (
+            "アップロード済みPDF内で十分に関連度の高い箇所を見つけられませんでした。"
+            "どの資料・テーマ・用語・ページ範囲について知りたいか、もう少し具体的に教えてください。"
+        )
+    return "知りたい内容をもう少し具体的に教えてください。"
+
+
+def _generate_clarification_request(
+    question: str, rows: list[dict], history: list[ChatHistoryMessage]
+) -> str:
+    settings = get_settings()
+    if not settings.openai_api_key:
+        return _clarification_request(question, "low_similarity")
+
+    client = OpenAI(api_key=settings.openai_api_key)
+    answer_language = _answer_language(question)
+    conversation_history = _build_conversation_history(history)
+    weak_context = _build_clarification_context(rows)
+    response = client.chat.completions.create(
+        model=settings.openai_chat_model,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a RAG assistant deciding how to ask for clarification. "
+                    "The retrieved PDF passages are below the confidence threshold, so do not answer the user's question. "
+                    "Use the weak matches only to infer what the user might mean and ask one or two concrete, helpful "
+                    "clarifying questions. Avoid generic wording. Mention candidate topics, terms, documents, or page "
+                    "areas from the weak matches when they help the user choose. Use the requested answer language."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Answer language: {answer_language}\n\n"
+                    f"Conversation history:\n{conversation_history}\n\n"
+                    f"Current question:\n{question}\n\n"
+                    f"Low-confidence PDF matches:\n{weak_context}"
+                ),
+            },
+        ],
+        temperature=0,
+    )
+    return response.choices[0].message.content or _clarification_request(question, "low_similarity")
+
+
+def _generate_answer(question: str, context: str, history: list[ChatHistoryMessage]) -> str:
     settings = get_settings()
     if not settings.openai_api_key:
         raise RuntimeError("OPENAI_API_KEY is not configured")
 
     client = OpenAI(api_key=settings.openai_api_key)
     answer_language = _answer_language(question)
+    conversation_history = _build_conversation_history(history)
     response = client.chat.completions.create(
         model=settings.openai_chat_model,
         messages=[
@@ -112,6 +209,9 @@ def _generate_answer(question: str, context: str) -> str:
                     "You are a careful RAG assistant. Answer only from the provided PDF page context. "
                     "Do not use outside knowledge and do not guess. The PDF context may be in a different "
                     "language from the question, but your answer must use the requested answer language. "
+                    "If the user's question is ambiguous, underspecified, or could refer to multiple things, "
+                    "ask one or two concise clarifying questions instead of answering immediately. "
+                    "If the conversation history already resolves the ambiguity, answer directly. "
                     "If the context does not contain enough information to answer, say so in the requested "
                     "answer language. Keep the answer concise and include page citations when stating facts."
                 ),
@@ -120,7 +220,8 @@ def _generate_answer(question: str, context: str) -> str:
                 "role": "user",
                 "content": (
                     f"Answer language: {answer_language}\n\n"
-                    f"Question:\n{question}\n\nPDF page context:\n{context}"
+                    f"Conversation history:\n{conversation_history}\n\n"
+                    f"Current question:\n{question}\n\nPDF page context:\n{context}"
                 ),
             },
         ],
@@ -240,14 +341,27 @@ def chat(request: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=400, detail="Question must not be empty")
 
     try:
-        rows = _search_page_rows(question, request.limit)
-        references = _reference_pages(rows)
+        rows = _search_page_rows(_search_query(question, request.history), request.limit)
         if not rows:
+            no_context_answer = (
+                "The uploaded documents do not contain enough information to answer."
+                if _answer_language(question) == "English"
+                else "アップロード済み資料に回答に必要な情報が見つかりませんでした。"
+            )
             return ChatResponse(
-                answer="アップロード済み資料に回答に必要な情報が見つかりませんでした。",
+                answer=no_context_answer,
                 references=[],
             )
-        answer = _generate_answer(question, _build_context(rows))
+
+        confident_rows = _high_confidence_rows(rows)
+        if not confident_rows:
+            return ChatResponse(
+                answer=_generate_clarification_request(question, rows, request.history),
+                references=[],
+            )
+
+        references = _reference_pages(confident_rows)
+        answer = _generate_answer(question, _build_context(confident_rows), request.history)
         return ChatResponse(answer=answer, references=references)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

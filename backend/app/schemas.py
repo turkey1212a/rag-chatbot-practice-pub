@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -38,9 +40,18 @@ class SearchResult(BaseModel):
     similarity_score: float
 
 
+class ChatHistoryMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, description="Conversation message text")
+
+
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, description="Question text to answer")
     limit: int = Field(default=5, ge=1, le=10, description="Maximum number of source pages to use")
+    history: list[ChatHistoryMessage] = Field(
+        default_factory=list,
+        description="Recent conversation messages for resolving follow-up questions",
+    )
 
 
 class ReferencePage(BaseModel):

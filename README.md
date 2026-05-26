@@ -33,6 +33,7 @@ OPENAI_CHAT_MODEL=gpt-4o-mini
 EMBEDDING_DIMENSIONS=1536
 UPLOAD_DIR=uploads
 MAX_PDF_PAGES=300
+MIN_CHAT_SIMILARITY_SCORE=0.68
 ```
 
 `OPENAI_API_KEY`は必ず自分のキーに変更してください。APIキー、アップロードPDF、DBデータはGit管理対象外です。
@@ -245,6 +246,7 @@ PDFは必ず1ページ1チャンクで保存します。ページ内の追加分
 
 - テキスト抽出できないページは`skipped_pages`として記録し、embedding保存をスキップします。
 - `MAX_PDF_PAGES`を超えるPDFは取り込みを拒否します。
+- チャット回答は`MIN_CHAT_SIMILARITY_SCORE`以上のページだけを根拠にします。該当ページがない場合は回答せず、質問の具体化を促します。
 - embedding次元数を変える場合は、既存DBボリュームを作り直すか、テーブル再作成が必要です。
 - 回答生成は検索で取得したページ本文だけをコンテキストにしますが、最終判断はLLMの出力に依存します。
 - ログにPDF本文やAPIキーを出さない方針のため、確認APIは本文を返しません。

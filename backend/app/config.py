@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     embedding_dimensions: int = 1536
     upload_dir: Path = Path("uploads")
     max_pdf_pages: int = 300
+    min_chat_similarity_score: float = 0.68
 
     model_config = SettingsConfigDict(env_file=(".env", "../.env"), env_file_encoding="utf-8")
 
