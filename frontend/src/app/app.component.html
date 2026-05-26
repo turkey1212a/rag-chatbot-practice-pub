@@ -1,85 +1,107 @@
-<main class="shell">
-  <header class="topbar">
-    <div>
+<main class="chat-shell">
+  <aside class="sidebar" aria-label="Documents">
+    <div class="brand">
       <p class="label">RAG PDF Chat</p>
       <h1>資料に聞く</h1>
     </div>
-    <div class="document-count">{{ documents().length }} PDFs</div>
-  </header>
 
-  <section class="workspace" aria-label="RAG chat workspace">
-    <aside class="sidebar">
-      <section class="tool-panel" aria-labelledby="upload-title">
-        <h2 id="upload-title">PDF</h2>
-        <div class="upload-row">
-          <input id="pdf-upload" type="file" accept="application/pdf" (change)="onFileSelected($event)" />
-          <button type="button" (click)="uploadPdf()" [disabled]="!selectedFile || uploading()">
-            {{ uploading() ? '取り込み中' : '取り込む' }}
-          </button>
-        </div>
-      </section>
-
-      <section class="tool-panel" aria-labelledby="documents-title">
-        <h2 id="documents-title">資料</h2>
-        @if (documents().length === 0) {
-          <p class="empty">取り込み済みPDFはありません。</p>
-        } @else {
-          <ul class="document-list">
-            @for (document of documents(); track document.document_id) {
-              <li>
-                <span>{{ document.file_name }}</span>
-                <small>{{ document.stored_pages }}/{{ document.page_count }}ページ</small>
-              </li>
-            }
-          </ul>
-        }
-      </section>
-    </aside>
-
-    <section class="chat-panel" aria-labelledby="chat-title">
-      <h2 id="chat-title">質問</h2>
-      <form class="question-form" (ngSubmit)="ask()">
-        <textarea
-          name="question"
-          [(ngModel)]="question"
-          rows="5"
-          placeholder="資料に含まれる内容について質問してください"
-        ></textarea>
-        <button type="submit" [disabled]="!question.trim() || asking()">
-          {{ asking() ? '生成中' : '質問する' }}
+    <section class="upload-panel" aria-labelledby="upload-title">
+      <h2 id="upload-title">PDF</h2>
+      <div class="upload-row">
+        <input id="pdf-upload" type="file" accept="application/pdf" (change)="onFileSelected($event)" />
+        <button type="button" (click)="uploadPdf()" [disabled]="!selectedFile || uploading()">
+          {{ uploading() ? '取り込み中' : '取り込む' }}
         </button>
-      </form>
+      </div>
+    </section>
+
+    <section class="documents-panel" aria-labelledby="documents-title">
+      <div class="section-heading">
+        <h2 id="documents-title">資料</h2>
+        <span>{{ documents().length }}</span>
+      </div>
+      @if (documents().length === 0) {
+        <p class="empty">取り込み済みPDFはありません。</p>
+      } @else {
+        <ul class="document-list">
+          @for (document of documents(); track document.document_id) {
+            <li>
+              <span>{{ document.file_name }}</span>
+              <small>{{ document.stored_pages }}/{{ document.page_count }}ページ</small>
+            </li>
+          }
+        </ul>
+      }
+    </section>
+  </aside>
+
+  <section class="conversation" aria-label="Chat">
+    <header class="chat-header">
+      <div>
+        <p class="label">Chat</p>
+        <h2>PDFアシスタント</h2>
+      </div>
+      <span>{{ documents().length }} PDFs</span>
+    </header>
+
+    <section class="message-list" aria-live="polite">
+      @if (messages().length === 0) {
+        <div class="empty-chat">
+          <h2>資料について質問できます</h2>
+          <p>PDFを取り込んでから、内容の要約や確認したい点を入力してください。</p>
+        </div>
+      }
+
+      @for (message of messages(); track $index) {
+        <article class="message" [class.user-message]="message.role === 'user'">
+          <div class="avatar">{{ message.role === 'user' ? 'You' : 'AI' }}</div>
+          <div class="bubble">
+            <p>{{ message.content }}</p>
+
+            @if (message.references?.length) {
+              <div class="references">
+                <h3>参照元</h3>
+                <ul>
+                  @for (reference of message.references; track reference.pdf_name + reference.page_number) {
+                    <li>
+                      <div class="reference-meta">
+                        <strong>{{ reference.pdf_name }} p.{{ reference.page_number }}</strong>
+                        <span>{{ reference.similarity_score | number: '1.3-3' }}</span>
+                      </div>
+                      <p>{{ reference.excerpt }}</p>
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
+          </div>
+        </article>
+      }
 
       @if (status()) {
-        <p class="status">{{ status() }}</p>
+        <article class="message">
+          <div class="avatar">AI</div>
+          <div class="bubble pending">
+            <p>{{ status() }}</p>
+          </div>
+        </article>
       }
+
       @if (error()) {
         <p class="error">{{ error() }}</p>
       }
-
-      @if (answer()) {
-        <section class="answer" aria-labelledby="answer-title">
-          <h2 id="answer-title">回答</h2>
-          <p>{{ answer() }}</p>
-        </section>
-      }
-
-      @if (references().length > 0) {
-        <section class="references" aria-labelledby="references-title">
-          <h2 id="references-title">参照元ページ</h2>
-          <ul>
-            @for (reference of references(); track reference.pdf_name + reference.page_number) {
-              <li>
-                <div class="reference-meta">
-                  <strong>{{ reference.pdf_name }} p.{{ reference.page_number }}</strong>
-                  <span>{{ reference.similarity_score | number: '1.3-3' }}</span>
-                </div>
-                <p>{{ reference.excerpt }}</p>
-              </li>
-            }
-          </ul>
-        </section>
-      }
     </section>
+
+    <form class="composer" (ngSubmit)="ask()">
+      <textarea
+        name="question"
+        [(ngModel)]="question"
+        rows="1"
+        placeholder="メッセージを入力"
+      ></textarea>
+      <button type="submit" [disabled]="!question.trim() || asking()">
+        {{ asking() ? '...' : '送信' }}
+      </button>
+    </form>
   </section>
 </main>

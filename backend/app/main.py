@@ -86,12 +86,23 @@ def _build_context(rows: list[dict]) -> str:
     return "\n\n---\n\n".join(parts)
 
 
+def _answer_language(question: str) -> str:
+    japanese_chars = sum(
+        1 for char in question if "\u3040" <= char <= "\u30ff" or "\u4e00" <= char <= "\u9fff"
+    )
+    latin_chars = sum(1 for char in question if char.isascii() and char.isalpha())
+    if latin_chars > 0 and japanese_chars == 0:
+        return "English"
+    return "Japanese"
+
+
 def _generate_answer(question: str, context: str) -> str:
     settings = get_settings()
     if not settings.openai_api_key:
         raise RuntimeError("OPENAI_API_KEY is not configured")
 
     client = OpenAI(api_key=settings.openai_api_key)
+    answer_language = _answer_language(question)
     response = client.chat.completions.create(
         model=settings.openai_chat_model,
         messages=[
@@ -99,15 +110,18 @@ def _generate_answer(question: str, context: str) -> str:
                 "role": "system",
                 "content": (
                     "You are a careful RAG assistant. Answer only from the provided PDF page context. "
-                    "Do not use outside knowledge and do not guess. If the context does not contain "
-                    "enough information to answer, say in Japanese that the uploaded documents do not "
-                    "contain enough information. Keep the answer concise and include page citations like "
-                    "（PDF名 p.ページ番号） when stating facts."
+                    "Do not use outside knowledge and do not guess. The PDF context may be in a different "
+                    "language from the question, but your answer must use the requested answer language. "
+                    "If the context does not contain enough information to answer, say so in the requested "
+                    "answer language. Keep the answer concise and include page citations when stating facts."
                 ),
             },
             {
                 "role": "user",
-                "content": f"Question:\n{question}\n\nPDF page context:\n{context}",
+                "content": (
+                    f"Answer language: {answer_language}\n\n"
+                    f"Question:\n{question}\n\nPDF page context:\n{context}"
+                ),
             },
         ],
         temperature=0,

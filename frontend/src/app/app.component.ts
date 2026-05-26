@@ -29,6 +29,12 @@ type ChatResponse = {
   references: ReferencePage[];
 };
 
+type ChatMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+  references?: ReferencePage[];
+};
+
 @Component({
   selector: 'app-root',
   standalone: true,
@@ -38,8 +44,7 @@ type ChatResponse = {
 })
 export class AppComponent implements OnInit {
   readonly documents = signal<DocumentSummary[]>([]);
-  readonly answer = signal('');
-  readonly references = signal<ReferencePage[]>([]);
+  readonly messages = signal<ChatMessage[]>([]);
   readonly status = signal('');
   readonly error = signal('');
   readonly uploading = signal(false);
@@ -104,9 +109,9 @@ export class AppComponent implements OnInit {
     }
 
     this.asking.set(true);
-    this.answer.set('');
-    this.references.set([]);
-    this.status.set('資料を検索して回答を生成しています...');
+    this.messages.update((messages) => [...messages, { role: 'user', content: question }]);
+    this.question = '';
+    this.status.set('回答を生成しています...');
     this.error.set('');
 
     this.http
@@ -116,8 +121,14 @@ export class AppComponent implements OnInit {
       })
       .subscribe({
         next: (response) => {
-          this.answer.set(response.answer);
-          this.references.set(response.references);
+          this.messages.update((messages) => [
+            ...messages,
+            {
+              role: 'assistant',
+              content: response.answer,
+              references: response.references,
+            },
+          ]);
           this.status.set('');
         },
         error: (error) => {
